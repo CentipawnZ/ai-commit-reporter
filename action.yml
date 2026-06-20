@@ -24,8 +24,12 @@ inputs:
     description: "Language of the generated report (e.g., English, Vietnamese, Chinese, Japanese, Korean)"
     required: false
     default: "English"
+  include-code-changes:
+    description: "Whether to include code changes (diff) for better context"
+    required: false
+    default: "false"
   prompt-template:
-    description: "Custom prompt template. Available variables: {{commits}}"
+    description: "Custom prompt template. Available variables: {{commits}}, {{grouped_commits}}, {{code_changes}}, {{locale}}"
     required: false
   output-mode:
     description: "Where to output the report (pr_comment)"

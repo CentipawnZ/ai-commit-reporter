@@ -20057,6 +20057,9 @@ function setFailed(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function info(message) {
   process.stdout.write(message + os4.EOL);
 }
@@ -34531,10 +34534,12 @@ var GoogleGenerativeAI = class {
 // src/llm.ts
 var DEFAULT_PROMPT = `
 You are an expert technical writer and software engineer.
-Summarize the following commit messages into a clear, structured release note or PR description.
+Summarize the following commit messages and code changes into a clear, structured release note or PR description.
 
 Here is the list of categorized commits:
 {{grouped_commits}}
+
+{{code_changes}}
 
 Generate a beautiful, professional, and well-structured release report.
 Write the final report in the following language: {{locale}}.
@@ -34584,11 +34589,12 @@ function groupCommits(commits) {
   }
   return output.trim();
 }
-async function generateReport(commits, options) {
+async function generateReport(commits, diffs, options) {
   const rawCommitList = commits.map((c) => `- ${c.split("\n")[0]}`).join("\n");
   const groupedCommitList = groupCommits(commits);
   const template = options.customPrompt || DEFAULT_PROMPT;
-  const prompt = template.replace("{{commits}}", rawCommitList).replace("{{grouped_commits}}", groupedCommitList).replace("{{locale}}", options.locale || "English");
+  const prompt = template.replace("{{commits}}", rawCommitList).replace("{{grouped_commits}}", groupedCommitList).replace("{{code_changes}}", diffs ? `Here are the code changes (diffs):
+${diffs}` : "").replace("{{locale}}", options.locale || "English");
   const provider = options.provider.toLowerCase();
   if (provider === "openai" || provider === "custom") {
     const config = { apiKey: options.apiKey };
@@ -34625,6 +34631,8 @@ async function run() {
     const octokit = getOctokit(token);
     const context3 = context2;
     let commits = [];
+    let diffs = "";
+    const includeDiff = getInput("include-code-changes") === "true";
     if (context3.eventName === "pull_request") {
       const prNumber = context3.payload.pull_request?.number;
       if (!prNumber) throw new Error("Could not get PR number from context");
@@ -34634,21 +34642,59 @@ async function run() {
         pull_number: prNumber
       });
       commits = data.map((commit) => commit.commit.message);
+      if (includeDiff) {
+        try {
+          const { data: files } = await octokit.rest.pulls.listFiles({
+            owner: context3.repo.owner,
+            repo: context3.repo.repo,
+            pull_number: prNumber
+          });
+          diffs = files.map((f) => `File: ${f.filename}
+${f.patch || ""}`).join("\n\n");
+        } catch (e) {
+          warning(`Failed to fetch PR diff: ${e.message}`);
+        }
+      }
     } else {
       const payloadCommits = context3.payload.commits;
       if (payloadCommits && Array.isArray(payloadCommits)) {
         commits = payloadCommits.map((c) => c.message);
+        if (includeDiff) {
+          try {
+            for (const commit of payloadCommits) {
+              const { data: commitData } = await octokit.rest.repos.getCommit({
+                owner: context3.repo.owner,
+                repo: context3.repo.repo,
+                ref: commit.id
+              });
+              if (commitData.files) {
+                const commitDiff = commitData.files.map((f) => `File: ${f.filename}
+${f.patch || ""}`).join("\n\n");
+                diffs += `
+
+Commit ${commit.id}:
+${commitDiff}`;
+              }
+            }
+          } catch (e) {
+            warning(`Failed to fetch commit diffs: ${e.message}`);
+          }
+        }
       } else {
         info("No commits found in event payload.");
         return;
       }
+    }
+    if (diffs.length > 4e4) {
+      info("Truncating diffs to avoid token limit.");
+      diffs = diffs.substring(0, 4e4) + "\n... (diff truncated)";
     }
     if (commits.length === 0) {
       info("No commits to process.");
       return;
     }
     info(`Found ${commits.length} commits. Generating report using ${llmProvider}...`);
-    const report = await generateReport(commits, {
+    const report = await generateReport(commits, diffs, {
       provider: llmProvider,
       apiKey: llmApiKey,
       model: llmModel,

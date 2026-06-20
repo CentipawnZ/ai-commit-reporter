@@ -3,10 +3,12 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const DEFAULT_PROMPT = `
 You are an expert technical writer and software engineer.
-Summarize the following commit messages into a clear, structured release note or PR description.
+Summarize the following commit messages and code changes into a clear, structured release note or PR description.
 
 Here is the list of categorized commits:
 {{grouped_commits}}
+
+{{code_changes}}
 
 Generate a beautiful, professional, and well-structured release report.
 Write the final report in the following language: {{locale}}.
@@ -75,6 +77,7 @@ export function groupCommits(commits: string[]): string {
 
 export async function generateReport(
   commits: string[],
+  diffs: string,
   options: LlmOptions
 ): Promise<string> {
   const rawCommitList = commits.map(c => `- ${c.split('\n')[0]}`).join('\n');
@@ -85,6 +88,7 @@ export async function generateReport(
   const prompt = template
     .replace('{{commits}}', rawCommitList)
     .replace('{{grouped_commits}}', groupedCommitList)
+    .replace('{{code_changes}}', diffs ? `Here are the code changes (diffs):\n${diffs}` : '')
     .replace('{{locale}}', options.locale || 'English');
 
   const provider = options.provider.toLowerCase();

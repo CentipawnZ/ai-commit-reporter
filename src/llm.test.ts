@@ -76,6 +76,7 @@ describe('LLM Report Generation', () => {
   it('should call OpenAI correctly and return results', async () => {
     const result = await generateReport(
       ['feat: add sso'],
+      '',
       {
         provider: 'openai',
         apiKey: 'fake-openai-key',
@@ -89,6 +90,7 @@ describe('LLM Report Generation', () => {
   it('should call Gemini correctly and return results', async () => {
     const result = await generateReport(
       ['feat: add sso'],
+      '',
       {
         provider: 'gemini',
         apiKey: 'fake-gemini-key',
